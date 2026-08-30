@@ -20,7 +20,7 @@ This is validated end-to-end on real CUDA hardware (a Colab Tesla T4) —
 the actual grading target: the hackathon's own updated benchmark script
 resolves its device as `"cuda" if torch.cuda.is_available() else "cpu"`,
 with no other backend in the loop (tech report §13). Every optimization
-here holds on CUDA, with real, GPU-measured speedups up to 2.06x (§4).
+here holds on CUDA, with real, GPU-measured speedups up to 3.22x (§4).
 
 The more differentiated part of this submission is *how* those
 optimizations were found and validated: this was originally built and
@@ -55,9 +55,10 @@ the core of NLP, computer vision, speech, recommendation, and LLM systems
   reproducible examples of standard, CUDA-safe optimizations that are
   actively wrong on MPS, plus the general lesson: verify per backend,
   don't assume an optimization transfers. In capacity terms, not just
-  x-factors: the 1.93x–2.06x speedups measured on CUDA (§4) mean roughly
-  half the GPU-hours for the same serving throughput, or close to double
-  the request volume on the same fleet, at this workload's shape range.
+  x-factors: the 2.08x–3.22x speedups measured on CUDA (§4) mean roughly
+  half to over two-thirds fewer GPU-hours for the same serving throughput,
+  or more than double to over triple the request volume on the same fleet,
+  at this workload's shape range.
 - **A portable pre-deployment checklist**, extracted from §6, for anyone
   serving attention-based models across more than one backend:
   - `.contiguous()` before an attention call is cheap on CPU/CUDA but can be
@@ -82,10 +83,10 @@ the core of NLP, computer vision, speech, recommendation, and LLM systems
   (~20.5 TB for one tensor, §13), and row 6 (batch=10,000) exercises a real,
   reproducible non-determinism bug in PyTorch's MPS backend that would
   affect grading fairness for any participant tested on Apple Silicon —
-  both documented precisely enough to act on, not just flagged.
-- **The bonus Triton kernel is independently verifiable by anyone in about
-  a minute** on a free Colab GPU (`notebooks/verify_triton_kernel.ipynb`),
-  not just asserted.
+  both documented precisely enough to act on.
+- **The bonus Triton kernel's 48/48 result is independently reproducible
+  in about a minute** via a free Colab GPU
+  (`notebooks/verify_triton_kernel.ipynb`).
 
 ## Project overview
 
@@ -124,12 +125,18 @@ correctness tests (`rtol<0.02, atol<0.002`), and improve runtime.
   a differently-masked input silently corrupted output
   (`max_abs_diff=4.06`) — and was not shipped (§7).
 - **Re-validated everything above on a real CUDA GPU (Colab Tesla T4)** —
-  not just MPS. Every fix holds, and most shapes do better on CUDA than
-  MPS: **1.93x** on small shapes (vs. 1.20x on MPS), **1.49x** on large
-  batch (vs. 1.15x), **2.06x** on long sequences (vs. 1.84x–1.89x). The one
-  clean reversal: `torch.compile` regresses 3x on MPS but is a genuine 1.16x
-  win on CUDA, confirming the MPS result is an Inductor/MPS-backend issue,
-  not a flaw in the design (§6.2).
+  not just MPS, and not just once. Every fix holds, and most shapes do
+  substantially better on CUDA than MPS: **2.08x–2.11x** on small shapes
+  (vs. 1.20x on MPS), **3.16x–3.22x** on long sequences (vs. 1.84x–1.89x).
+  Both were re-checked twice after regenerating the results dashboard
+  turned up a mismatch with the headline table — the originally published
+  1.93x and 2.06x both understated the real result and have been corrected
+  (§6.3). The one exception is large batch, which lands at 1.13x–1.15x on
+  both backends rather than improving on CUDA — an earlier 1.49x reading
+  for that config also didn't reproduce, in the opposite direction, and was
+  corrected the same way (§6.3). Separately, `torch.compile` regresses 3x
+  on MPS but is a genuine 1.16x win on CUDA, confirming that MPS result is
+  an Inductor/MPS-backend issue, not a flaw in the design (§6.2).
 - Added a hand-written Triton kernel (fused scale+mask+softmax) as a bonus.
   It requires CUDA, which neither dev environment has — written and
   syntax-checked only during development, then **verified on a real CUDA
@@ -207,6 +214,8 @@ reports/
   TECH_REPORT.md                 # full analysis, results, limitations
   dashboard.png, dashboard_results.md  # generated benchmark summary
 notebooks/
+  verify_cuda_benchmarks.ipynb   # one-click Colab check for the §4 headline
+                                  # speedup numbers
   verify_triton_kernel.ipynb     # one-click Colab check for the Triton kernel
 requirements.txt
 ```
@@ -250,11 +259,16 @@ already been verified on a free Colab GPU — see `reports/TECH_REPORT.md` §4,
 §6, §9, §10 for the results — but you can reproduce that yourself in about a
 minute:
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/brdge77e/optimized-transformer-layer/blob/main/notebooks/verify_triton_kernel.ipynb)
-
-Select a T4 GPU runtime and run all cells — it clones this repo and runs
-`tests/test_triton_kernel.py`; every row should print `PASS`, matching the
-48/48 already recorded in the tech report.
+- **Main benchmark table (§4's headline 1.13x–3.22x speedups):**
+  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/brdge77e/optimized-transformer-layer/blob/main/notebooks/verify_cuda_benchmarks.ipynb)
+  — clones this repo and runs `tests/run_benchmark_suite.py cuda` at the
+  official script's full-rigor defaults; six configs, each should print
+  `PASS` with a speedup close to what's in §4.
+- **Bonus Triton kernel:**
+  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/brdge77e/optimized-transformer-layer/blob/main/notebooks/verify_triton_kernel.ipynb)
+  — clones this repo and runs `tests/test_triton_kernel.py`; every row
+  should print `PASS`, matching the 48/48 already recorded in the tech
+  report.
 
 **Environment:** built in a CPU-only sandbox, then validated end-to-end on
 two independent real GPUs — a MacBook Pro (Apple M3 Pro) via PyTorch's MPS
@@ -285,9 +299,9 @@ check that particular claim) — see tech report §8 and §11.
   that a compiled Triton kernel doesn't carry the eager-mode
   PyTorch dispatch penalty that sank the hand-written version in §10.
 - **Measured speedups: 1.15x–1.20x (MPS) / 1.13x–1.16x (CUDA) on
-  short/default shapes, up to 1.84x–1.89x (MPS) / 2.06x (CUDA) on long
-  sequences** (§4/§6.3) — real, GPU-measured numbers on two independent
-  backends, not a single-backend result assumed to generalize.
+  short/default shapes, up to 1.84x–1.89x (MPS) / 3.16x–3.22x (CUDA) on
+  long sequences** (§4/§6.3) — real, GPU-measured numbers on two
+  independent backends, not a single-backend result assumed to generalize.
 - **The hackathon's own published Appendix (row 14, seq_len=100,000)
   cannot be run end-to-end by the fixed baseline formula on any hardware
   that exists** (~20.5 TB for one tensor, confirmed directly, §13) — not a

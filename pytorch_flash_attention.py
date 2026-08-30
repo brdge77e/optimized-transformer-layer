@@ -5,13 +5,14 @@ algorithm: Dao et al., 2022), implemented in plain PyTorch tensor ops --
 no Triton, no CUDA, no custom C++/Metal extension.
 
 Why this exists: `triton_kernels.py` (the other bonus kernel in this repo)
-requires a CUDA GPU and could not be run or verified on either machine used
-to build this submission (see reports/TECH_REPORT.md). This module is a
-second, independent custom-kernel attempt, written so it CAN be verified
-end-to-end on the hardware actually available -- correctness
-(tests/test_flash_attention_pytorch.py: 140/140 configurations, on both CPU
-and Apple M3 Pro via MPS) and performance (this file's __main__ block) are
-both measured directly, not just syntax-checked.
+requires a CUDA GPU, which neither development machine had at the time it
+was written (see reports/TECH_REPORT.md §9 -- it has since been verified on
+a Colab Tesla T4). This module is a second, independent custom-kernel
+attempt, written so it could be verified end-to-end on the hardware actually
+available at the time -- correctness (tests/test_flash_attention_pytorch.py:
+140/140 configurations, on CPU, Apple M3 Pro via MPS, and a Colab Tesla T4
+via CUDA) and performance (this file's __main__ block) are both measured
+directly, not just syntax-checked.
 
 Algorithm: keep the full query block resident, tile only over key/value
 blocks, and maintain a running max/sum/output accumulator (online softmax)

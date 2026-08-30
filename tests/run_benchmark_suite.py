@@ -51,8 +51,17 @@ def run_one(label: str, args: list[str], device: str) -> None:
         sys.executable, str(SCRIPT),
         "--device", device,
         "--rtol", "0.02", "--atol", "0.002",
-        "--accuracy-trials", "3", "--warmup", "5", "--repeats", "10",
-        "--benchmark-rounds", "2",
+        # No --accuracy-trials/--warmup/--repeats/--benchmark-rounds override
+        # here on purpose: this script's whole point is reproducing the
+        # official script's own numbers, so it must run with the official
+        # script's own full-rigor defaults (5 accuracy trials, 20 warmup,
+        # 100 repeats, 3 rounds), not a lighter subset. An earlier version
+        # of this script overrode these to a much lighter setting (3/5/10/2)
+        # -- likely the actual source of several numbers in
+        # reports/TECH_REPORT.md that didn't reproduce under full rigor and
+        # had to be corrected (see §6.3). Do not reintroduce lighter
+        # overrides here; use tests/generate_demo_dashboard.py instead if a
+        # quick, explicitly-lower-fidelity snapshot is what's wanted.
         *args,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)

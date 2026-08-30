@@ -36,18 +36,23 @@ bandwidth win of never materializing the score matrix, and SDPA already
 outperforms it end-to-end. Treat this as a bonus/demonstration path, not the
 recommended default.
 
-IMPORTANT / HONESTY NOTE
--------------------------
-This sandbox has no CUDA GPU (verified: torch.cuda.is_available() is False
-here), and Triton kernels only execute on GPU. This kernel was written
-carefully against the standard Triton "fused softmax" tutorial pattern
+IMPORTANT / VERIFICATION STATUS
+---------------------------------
+Neither development machine has a CUDA GPU (verified: torch.cuda.is_available()
+is False in the CPU sandbox; Apple's MPS backend cannot run Triton kernels
+either), so this kernel was originally written against the standard Triton
+"fused softmax" tutorial pattern
 (https://triton-lang.org/main/getting-started/tutorials/02-fused-softmax.html)
-extended with a pre-softmax affine scale and an additive mask, and it has
-been syntax-checked (the module imports and `triton.jit` decoration succeeds)
-but it has NOT been runtime-executed on a GPU. Run
-`tests/test_triton_kernel.py` on your own CUDA machine before relying on it
-for grading, and please report back / file an issue if it needs fixes --
-treat correctness here as "reasoned through, not yet proven."
+extended with a pre-softmax affine scale and an additive mask, and syntax-
+checked only (the module imports and `triton.jit` decoration succeeds).
+
+It has since been runtime-verified on a real CUDA GPU (Colab, Tesla T4,
+PyTorch 2.11.0+cu128) via `notebooks/verify_triton_kernel.ipynb`, which runs
+`tests/test_triton_kernel.py` directly: 48/48 configurations pass -- sequence
+lengths 16/128/512/2048 x causal on/off x padding on/off x
+{float32, float16, bfloat16} -- see reports/TECH_REPORT.md §9 for the full
+numbers. Re-run `tests/test_triton_kernel.py` on any CUDA machine to
+reproduce that result directly rather than taking it on faith.
 
 Scope limits (by design, to keep the kernel simple and reasoned-about):
   * One Triton program handles one full row of the score matrix in a single

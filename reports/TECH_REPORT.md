@@ -12,15 +12,15 @@ transfer, and three of the "standard, CUDA-safe" changes turned out to be
 measurably wrong on the backend they weren't built for (§6) — which is most
 of where the numbers below actually come from, not the fusion moves alone.
 
-**1.13x–2.06x speedup**, verified on two independent real GPUs (Apple M3
+**1.13x–3.22x speedup**, verified on two independent real GPUs (Apple M3
 Pro/MPS and a Colab Tesla T4/CUDA), **72/72 correctness configs pass on
 both** at the problem statement's tolerance (`rtol<0.02, atol<0.002`).
 
 | Config | MPS speedup | CUDA speedup (T4) |
 |---|---|---|
 | default (script defaults) | 1.15x | 1.13x–1.16x |
-| small shapes | 1.20x | **1.93x** |
-| long sequence (causal) | 1.84x–1.89x | **2.06x** |
+| small shapes | 1.20x | **2.08x–2.11x** |
+| long sequence (causal) | 1.84x–1.89x | **3.16x–3.22x** |
 | causal + real padding | 1.06x–1.09x | 1.16x |
 
 Three changes account for nearly all of it: fusing Q/K/V into one GEMM,
@@ -111,19 +111,24 @@ Speedup = baseline / optimized median latency, measured by
 
 | Config | batch | seq_len | d_model | layers | MPS speedup | CUDA speedup (T4) |
 |---|---|---|---|---|---|---|
-| small | 4 | 64 | 128 | 3 | 1.20x | **1.93x** |
+| small | 4 | 64 | 128 | 3 | 1.20x | **2.08x–2.11x** |
 | default (script defaults) | 8 | 128 | 512 | 6 | 1.15x | 1.13x–1.16x |
-| large batch | 64 | 32 | 256 | 4 | 1.15x | **1.49x** |
-| long sequence (causal, no padding) | 2 | 1024 | 256 | 4 | 1.84x–1.89x | **2.06x** |
+| large batch | 64 | 32 | 256 | 4 | 1.15x | 1.13x–1.15x |
+| long sequence (causal, no padding) | 2 | 1024 | 256 | 4 | 1.84x–1.89x | **3.16x–3.22x** |
 | causal + real padding | 8 | 128 | 512 | 6 | 1.06x–1.09x | 1.16x |
-| long sequence + causal + real padding | 2 | 1024 | 256 | 4 | 1.34x | **2.05x** |
+| long sequence + causal + real padding | 2 | 1024 | 256 | 4 | 1.34x | **2.28x–2.34x** |
 | default + `--compile-user` | 8 | 128 | 512 | 6 | 0.32x–0.33x (§6.2) | **1.16x (helps, unlike MPS)** |
 
 Every fix holds on CUDA, and most shapes do better there than on MPS — the
-widest gaps are long sequence (2.06x vs. 1.84x–1.89x) and the hardest
-combined case (2.05x vs. 1.34x). Accuracy on that combined config:
-`max_abs≈1.4e-6` across 5 trials. `torch.compile` is the clearest backend
-split: a 3x regression on MPS (§6.2) but a real 1.16x win on CUDA,
+widest gaps are long sequence (3.16x–3.22x vs. 1.84x–1.89x) and the hardest
+combined case (2.28x–2.34x vs. 1.34x). The gap between those two CUDA
+numbers — no-padding clearly ahead of padded, rather than nearly identical —
+is also the expected shape given §6.3's finding that padding can't take the
+cheapest fast path; an earlier pair of readings for these two configs (2.06x
+and 2.05x) understated both and obscured that separation, and was corrected
+after re-running each twice independently (§6.3). Accuracy on the combined
+config: `max_abs≈1.4e-6` across 5 trials. `torch.compile` is the clearest
+backend split: a 3x regression on MPS (§6.2) but a real 1.16x win on CUDA,
 consistent with Inductor's MPS backend being immature in this PyTorch
 version rather than a problem with the fused-QKV/SDPA design itself.
 
@@ -269,10 +274,20 @@ Numbers in §4 and this section are all unprofiled wall-clock measurements.
 
 **Confirmed on CUDA.** The fix doesn't rely on an MPS-specific quirk —
 SDPA's fused/flash CUDA backends have the same requirement (an additive
-float mask or `None`, not an arbitrary boolean one). Re-run on the T4: the
-shapes that benefit most on MPS benefit at least as much on CUDA — small
-1.20x → **1.93x**, large batch 1.15x → **1.49x**, long sequence 1.84x–1.89x
-→ **2.06x** (§4).
+float mask or `None`, not an arbitrary boolean one). Re-run on the T4, each
+config independently re-verified at least twice: most shapes that benefit
+on MPS benefit substantially more on CUDA — small 1.20x → **2.08x–2.11x**,
+long sequence 1.84x–1.89x → **3.16x–3.22x**, long sequence + padding
+1.34x → **2.28x–2.34x** (§4). Every one of these three CUDA numbers was
+originally published lower than what re-running produces (1.93x, 2.06x, and
+2.05x respectively) — caught by regenerating the results dashboard and
+finding it didn't match the headline table, then confirmed by re-running
+each config twice more before correcting it here. One exception, found by
+re-running rather than assumed: large batch lands at
+1.13x–1.15x on both backends, essentially unchanged rather than improved —
+an earlier reading of 1.49x on CUDA for this config did not reproduce across
+three independent re-runs (two lighter dashboard runs and one full-rigor
+run, all 1.13x–1.15x) and has been corrected.
 
 ## 7. Optimizations tried and rejected
 

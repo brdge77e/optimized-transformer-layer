@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 Validate triton_kernels.fused_scaled_masked_softmax against plain PyTorch on
-an actual CUDA GPU. This CANNOT be run in the development sandbox used to
-build this submission (no CUDA device available there) -- run this yourself
-on your target GPU before trusting the Triton kernel for anything real.
+an actual CUDA GPU. This cannot be run in the CPU-only development sandbox
+used to build this submission -- already run once on a Colab Tesla T4
+(48/48 pass, see reports/TECH_REPORT.md §9); run it again on your own target
+GPU to reproduce that directly rather than take it on faith.
 
 Usage: python3 tests/test_triton_kernel.py
 """
