@@ -3,16 +3,15 @@
 **The claim this repo tests:** most transformer-optimization advice — fuse
 QKV, call `scaled_dot_product_attention`, drop unnecessary `.contiguous()`
 calls — is developed and validated once, on CUDA, then applied everywhere
-else on faith that it transfers. It doesn't always: profiling and
-re-validating the same "safe" optimizations on a second real backend (Apple
-Silicon/MPS) found three cases where that faith was measurably wrong, and
+else on faith that it transfers. That faith doesn't always hold. Profiling
+and re-validating the same "safe" optimizations on a second real backend
+(Apple Silicon/MPS) found three cases where it was measurably wrong, and
 profiling *again* on real CUDA hardware — rather than assuming the MPS
 findings would carry over either — confirmed which of those held and which
-didn't (§6). That's this submission's direct answer to the hackathon's own
-framing question — how AI-assisted profiling finds a workload's real
-bottlenecks and produces an implementation tuned to specific GPU hardware —
-worked end-to-end across three backends instead of assumed from one. Full
-analysis: `reports/TECH_REPORT.md`.
+didn't (§6). That's the hackathon's own framing question — how
+AI-assisted profiling finds a workload's real bottlenecks and produces an
+implementation tuned to specific GPU hardware — answered across three
+backends, not assumed from one. Full analysis: `reports/TECH_REPORT.md`.
 
 ## Why this matters beyond the benchmark
 
@@ -169,9 +168,10 @@ correctness tests (`rtol<0.02, atol<0.002`), and improve runtime.
   where baseline crashes first anyway. Fixed with a threshold-gated route
   to the tiled kernel above, verified correct and non-regressive against
   the full existing test suite (§13). Row 6 (batch=10,000) independently
-  surfaced a genuine **non-determinism bug in PyTorch's MPS backend
-  itself** — reproduced in the unmodified baseline reference, confirmed
-  absent on CPU, not something any participant's code could avoid (§13).
+  surfaced a **non-determinism bug in PyTorch's MPS backend** — reproduced
+  in the unmodified baseline reference, confirmed absent on CPU, and
+  re-verified in a second, separate run designed to rule out a simpler
+  alternative explanation (§13).
 
 **Development tools:** Claude (Anthropic) via an agentic coding sandbox with
 bash/Python execution, used interactively to write, profile, test, and

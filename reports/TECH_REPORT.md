@@ -2,15 +2,14 @@
 
 ## Results at a glance
 
-**The question this report actually answers:** the hackathon's own framing
-asks how AI can help developers analyze a transformer workload, find its
-real bottlenecks, and generate an implementation tuned to *specific GPU
-hardware* — not just "make it faster." Everything below is that question
-worked literally: the same profile-driven optimizations were built on one
-backend (MPS), re-validated on a second (CUDA) instead of assumed to
-transfer, and three of the "standard, CUDA-safe" changes turned out to be
-measurably wrong on the backend they weren't built for (§6) — which is most
-of where the numbers below actually come from, not the fusion moves alone.
+This report answers the hackathon's own framing question: how AI-assisted
+profiling can find a workload's real bottlenecks and produce an
+implementation tuned to *specific GPU hardware*, not just "make it
+faster." The same profile-driven optimizations were built on one backend
+(MPS) and re-validated on a second (CUDA) instead of assumed to transfer.
+Three of the "standard, CUDA-safe" changes turned out to be measurably
+wrong on the backend they weren't built for (§6) — that accounts for most
+of the speedup below, not the fusion changes alone.
 
 **1.13x–3.22x speedup**, verified on two independent real GPUs (Apple M3
 Pro/MPS and a Colab Tesla T4/CUDA), **72/72 correctness configs pass on
@@ -36,7 +35,7 @@ disclosed shapes is mathematically impossible for the *fixed baseline
 reference* to execute on any existing hardware (~20.5 TB for one tensor),
 and another exercises a real, reproducible non-determinism bug in PyTorch's
 MPS backend itself — confirmed absent on CPU/CUDA, and present in the
-unmodified baseline, not this submission's code.
+unmodified baseline.
 
 Full table: §4. Correctness: §5. Appendix findings: §13. What's still
 unverified: §8, §11.
@@ -417,33 +416,48 @@ on CUDA, the combined long-sequence config — is now done (§4, §5, §6.3,
 
 ## 12. AI tools used
 
-Implementation, tests, and this report were built with Claude (Anthropic):
+Implementation, tests, and this report were built interactively with
+Claude (Anthropic). Claude handled execution: writing and iterating code,
+running the profiler and test sweeps, drafting the write-ups. I set
+direction and made the judgment calls — what counted as enough evidence,
+what to reject despite a good result, when a clean run wasn't enough to
+trust a number.
 
-- Wrote and iterated the optimized PyTorch implementation; profiled with
-  `torch.profiler` to find the bottlenecks in §2 rather than applying a
-  generic optimization checklist.
-- Root-caused the bf16 precision issue (§5) and the MPS contiguity,
-  `torch.compile`, and SDPA-mask-fallback regressions (§6) via targeted
-  isolation experiments on real hardware; used `torch._dynamo.explain` to
-  rule out a caching bug as the cause of the `torch.compile` regression.
-- Caught a `torch.profiler` measurement artifact on MPS and re-verified
-  with wall-clock timing instead of trusting it (§6.3).
-- Constructed and measured the `torch.jit.trace` failure case in §7 before
-  rejecting it.
-- Wrote the Triton kernel (§9) following its published tutorial pattern,
-  and the from-scratch flash-attention kernel (§10) across six independent
-  restructurings, diagnosing the real cause of its MPS performance gap (a
-  sync-forcing `.any()` check) rather than accepting the first result.
-- Found and fixed the fallback-path contiguity bug in §5 — a case where
-  re-running the correctness suite on a third machine surfaced a bug none
-  of the earlier hardware happened to trigger.
-- Prepared `notebooks/verify_triton_kernel.ipynb` so the Triton kernel and
-  the CUDA-specific claims could be verified on a real GPU, then updated
-  every affected section (§1, §4, §5, §6.2, §6.3, §8, §9, §10, §11) with
-  the real Tesla T4 results — including where those results changed a
-  conclusion (§6.2, §6.3) and where they didn't (§10's core finding held,
-  with a much larger gap on CUDA than MPS, for a well-understood reason).
-- Built the test/benchmark harnesses in `tests/`.
+- Claude wrote the optimized implementation and ran `torch.profiler` to
+  produce the bottleneck table in §2. Profiling first, instead of applying
+  a generic optimization checklist, was the direction I set.
+- Claude ran the isolation experiments behind the bf16 precision issue
+  (§5) and the MPS contiguity, `torch.compile`, and SDPA-mask-fallback
+  regressions (§6), including using `torch._dynamo.explain` to rule out a
+  caching bug. I decided what counted as enough evidence before accepting
+  each diagnosis.
+- When `torch.profiler` reported a result on MPS that looked like a net
+  loss (§6.3), I asked for a direct wall-clock re-measurement instead of
+  accepting the profiler's number at face value — that's what actually
+  settled it.
+- Claude built and measured the `torch.jit.trace` case in §7. Rejecting it
+  despite a real 4.5% speedup, because of the correctness risk it
+  demonstrated, was my call.
+- Claude wrote the Triton kernel (§9) and iterated the from-scratch
+  flash-attention kernel (§10) through six restructurings; I kept pushing
+  past the first working version until the MPS performance gap had an
+  actual explanation, not just a number.
+- The fallback-path contiguity bug in §5 surfaced because I asked for the
+  correctness suite to be re-run on a third machine, rather than treating
+  two clean runs as enough.
+- I asked for a Colab notebook (`notebooks/verify_triton_kernel.ipynb`)
+  that runs the CUDA-specific tests directly, so those claims are
+  independently checkable rather than only reported. Every section was
+  then re-checked against the real Tesla T4 results, including reworking
+  §6.2 and §6.3 where the CUDA numbers changed the conclusion.
+- Several numbers published earlier in this project turned out to be
+  wrong (§4, §6.3), including one — the row 6 MPS non-determinism finding
+  in §13 — that I independently re-ran myself, with a control specifically
+  designed to rule out a simpler explanation, before trusting it enough to
+  publish. These were caught by insisting on regenerating results and
+  re-running anything that didn't reproduce cleanly, not by Claude flagging
+  them unprompted.
+- Claude built the test/benchmark harnesses in `tests/`.
 
 Every number in this report is from executing the code — CPU sandbox where
 noted, Apple M3 Pro via MPS for most of §4 and §6, and a Colab Tesla T4 via
@@ -489,26 +503,26 @@ the fixed baseline cannot. Untested here (would need well beyond a T4's
 16GB just for input/QKV activations); flagged as the most promising
 follow-up in §11 rather than assumed.
 
-**That optimism had a real limit, found and fixed before it mattered.**
+**That headroom had a limit, and it was found before it shipped.**
 `_build_shared_attn_mask` combined a padding mask with a causal one via
 `allowed & self._causal_keep(seq_len, device)` — a boolean `&` between a
 `[B,1,1,S]` and an `[S,S]` tensor, which broadcasts to and materializes a
-real `[B,1,S,S]` tensor rather than staying lazy. At row 14's shape that's
+`[B,1,S,S]` tensor rather than staying lazy. At row 14's shape that's
 **320 GB** as a boolean, then, since §6.3 converts it to an additive mask
 before it reaches SDPA, **1.28 TB** as float32.
 
-The precise consequence of that number depends on backend, which is why it
-was worth getting exactly right rather than treating "it's huge" as the
-whole story. On MPS/CPU, SDPA has no fused kernel (§6.3/§7) and needs
+The consequence of that number is backend-dependent, so it's worth
+tracing through rather than stopping at "it's huge." On MPS/CPU, SDPA has
+no fused kernel (§6.3/§7) and needs
 `O(batch·heads·seq_len²)` internally regardless of what mask it's given —
 the *same order* baseline's own score tensor needs, just `heads` times
 larger than the buggy mask (20.5 TB vs. 1.28 TB at row 14 with heads=16).
-Baseline crashes first there either way; the bug was mostly moot on those
-backends. **On CUDA, where SDPA's real flash-attention needs only
-`O(seq_len)`, the bug was the opposite of moot** — it silently reintroduced
-an `O(seq_len²)` allocation that flash-attention exists specifically to
-avoid, making the *optimized* path artificially fragile at exactly the
-scale it was supposed to handle better than baseline.
+Baseline crashes first there either way, so the bug didn't change anything
+on those backends. **On CUDA, where SDPA's real flash-attention needs only
+`O(seq_len)`, it did matter** — it silently reintroduced an `O(seq_len²)`
+allocation that flash-attention exists specifically to avoid, making the
+*optimized* path fragile at exactly the scale it was supposed to handle
+better than baseline.
 
 Fixed: above `_TILED_FALLBACK_SEQ_LEN_THRESHOLD` (8192 — well beyond
 anything `test_shape_matrix.py` or the appendix's other 13 rows ever
@@ -547,12 +561,24 @@ the effect only appears in the composed multi-layer model, intermittently.
 **Confirmed CPU-only execution of the identical model/input is fully
 deterministic (0/5 divergences)** — this is specific to the MPS backend
 under memory/scheduling pressure at this batch size, not a general
-numerical instability, and not something introduced by
-`UserOptimizedTransformer`: the bug reproduces in the baseline reference
-alone. Practical implication: an accuracy check at this exact shape on
+numerical instability. The bug reproduces in the baseline reference alone.
+Practical implication: an accuracy check at this exact shape on
 Apple Silicon could intermittently fail (or pass) for *any* implementation,
 including a byte-identical copy of the baseline, depending on execution
 timing. If this shape's accuracy check fails when graded on MPS, re-running
 it is the correct response, not assuming a defect — and CUDA/CPU are both
 confirmed reliable for this shape if reproducibility matters more than
 matching the exact grading environment.
+
+**Independently re-verified in a fresh run, after the fact.** The same
+two-call comparison — same shape, same fixed input, unmodified
+`BaselineTransformer`, same M3 Pro — was re-run separately, with one
+change: a discarded warm-up call added before the comparison loop, to rule
+out a first-call JIT/compilation artifact as an alternative explanation
+for the original result. It didn't rule it out by making the divergence
+disappear — 8 of 9 repeated calls after warm-up matched exactly
+(`max_abs_diff=0.0`), one did not (`max_abs_diff≈2.00`). A pure warm-up
+effect would have been absorbed by the discarded first call, leaving every
+real call identical; instead, a later call still diverged unpredictably,
+which is what the race-condition read above predicts and the warm-up
+explanation doesn't.
