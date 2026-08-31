@@ -417,47 +417,38 @@ on CUDA, the combined long-sequence config — is now done (§4, §5, §6.3,
 ## 12. AI tools used
 
 Implementation, tests, and this report were built interactively with
-Claude (Anthropic). Claude handled execution: writing and iterating code,
-running the profiler and test sweeps, drafting the write-ups. I set
-direction and made the judgment calls — what counted as enough evidence,
-what to reject despite a good result, when a clean run wasn't enough to
-trust a number.
+Claude (Anthropic). Claude wrote and iterated the code, ran the profiler
+and test sweeps, and drafted the write-ups. I set direction and made the
+judgment calls: what counted as enough evidence, what to reject despite a
+good result, when a clean run wasn't enough to trust a number.
 
-- Claude wrote the optimized implementation and ran `torch.profiler` to
-  produce the bottleneck table in §2. Profiling first, instead of applying
-  a generic optimization checklist, was the direction I set.
-- Claude ran the isolation experiments behind the bf16 precision issue
-  (§5) and the MPS contiguity, `torch.compile`, and SDPA-mask-fallback
-  regressions (§6), including using `torch._dynamo.explain` to rule out a
-  caching bug. I decided what counted as enough evidence before accepting
-  each diagnosis.
-- When `torch.profiler` reported a result on MPS that looked like a net
-  loss (§6.3), I asked for a direct wall-clock re-measurement instead of
-  accepting the profiler's number at face value — that's what actually
-  settled it.
-- Claude built and measured the `torch.jit.trace` case in §7. Rejecting it
-  despite a real 4.5% speedup, because of the correctness risk it
-  demonstrated, was my call.
-- Claude wrote the Triton kernel (§9) and iterated the from-scratch
-  flash-attention kernel (§10) through six restructurings; I kept pushing
-  past the first working version until the MPS performance gap had an
-  actual explanation, not just a number.
-- The fallback-path contiguity bug in §5 surfaced because I asked for the
-  correctness suite to be re-run on a third machine, rather than treating
-  two clean runs as enough.
-- I asked for a Colab notebook (`notebooks/verify_triton_kernel.ipynb`)
-  that runs the CUDA-specific tests directly, so those claims are
-  independently checkable rather than only reported. Every section was
-  then re-checked against the real Tesla T4 results, including reworking
-  §6.2 and §6.3 where the CUDA numbers changed the conclusion.
-- Several numbers published earlier in this project turned out to be
-  wrong (§4, §6.3), including one — the row 6 MPS non-determinism finding
-  in §13 — that I independently re-ran myself, with a control specifically
-  designed to rule out a simpler explanation, before trusting it enough to
-  publish. These were caught by insisting on regenerating results and
-  re-running anything that didn't reproduce cleanly, not by Claude flagging
-  them unprompted.
-- Claude built the test/benchmark harnesses in `tests/`.
+- Claude wrote the implementation and ran `torch.profiler` for the
+  bottleneck table in §2; profiling first, instead of a generic checklist,
+  was my direction.
+- Claude ran the isolation experiments behind the bf16 issue (§5) and the
+  MPS contiguity, `torch.compile`, and SDPA-mask-fallback regressions
+  (§6), using `torch._dynamo.explain` to rule out a caching bug. I decided
+  what counted as enough evidence for each.
+- When `torch.profiler` showed a result on MPS that looked like a net
+  loss (§6.3), I asked for a wall-clock re-measurement instead of trusting
+  the profiler — that settled it.
+- Claude built and measured the `torch.jit.trace` case in §7; rejecting
+  it despite a real 4.5% speedup was my call, on the correctness risk it
+  demonstrated.
+- Claude wrote the Triton kernel (§9) and iterated the flash-attention
+  kernel (§10) through six restructurings; I kept pushing until the MPS
+  gap had an explanation, not just a number.
+- The fallback-path bug in §5 surfaced because I asked for the correctness
+  suite re-run on a third machine, not stopped at two clean runs.
+- I asked for `notebooks/verify_triton_kernel.ipynb` so CUDA claims could
+  be checked independently, then had every section re-checked against the
+  real T4 results — including §6.2 and §6.3, where the CUDA numbers
+  changed the conclusion.
+- Several published numbers turned out wrong (§4, §6.3), including the
+  row 6 finding in §13, which I re-ran myself with a control ruling out a
+  simpler explanation. Caught by insisting on re-running anything that
+  didn't reproduce cleanly, not by Claude flagging it.
+- Claude also built the test/benchmark harnesses in `tests/`.
 
 Every number in this report is from executing the code — CPU sandbox where
 noted, Apple M3 Pro via MPS for most of §4 and §6, and a Colab Tesla T4 via
